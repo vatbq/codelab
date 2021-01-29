@@ -16,60 +16,110 @@
 'use strict';
 
 // Signs-in Friendly Chat.
-function signIn() {
-  alert('TODO: Implement Google Sign-In');
-  // TODO 1: Sign in Firebase with credential from the Google user.
+const signIn = () => {
+  const provider = new firebase.auth.GoogleAuthProvider();
+  firebase.auth().signInWithPopup(provider);
 }
 
 // Signs-out of Friendly Chat.
-function signOut() {
-  // TODO 2: Sign out of Firebase.
-}
+const signOut = () => firebase.auth().signOut();
 
 // Initiate firebase auth.
-function initFirebaseAuth() {
-  // TODO 3: Initialize Firebase.
-}
+const initFirebaseAuth = () => firebase.auth().onAuthStateChanged(authStateObserver);
 
 // Returns the signed-in user's profile Pic URL.
-function getProfilePicUrl() {
-  // TODO 4: Return the user's profile pic URL.
-}
-
+const getProfilePicUrl = () => firebase.auth().currentUser.photoURL || '/images/profile_placeholder.png';
+  
 // Returns the signed-in user's display name.
-function getUserName() {
-  // TODO 5: Return the user's display name.
-}
+const getUserName = () => firebase.auth().currentUser.displayName;
 
 // Returns true if a user is signed-in.
-function isUserSignedIn() {
-  // TODO 6: Return true if a user is signed-in.
-}
+const isUserSignedIn = () => !!firebase.auth().currentUser;
 
 // Saves a new message on the Firebase DB.
-function saveMessage(messageText) {
-  // TODO 7: Push a new message to Firebase.
-}
+const saveMessage = messageText => (
+  firebase.firestore().collection('messages').add({
+    name: getUserName(),
+    text: messageText,
+    profilePicUrl: getProfilePicUrl(),
+    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+  }).catch(err => {
+    console.log('Error writing message', err);
+  })
+)
 
 // Loads chat messages history and listens for upcoming ones.
-function loadMessages() {
-  // TODO 8: Load and listens for new messages.
+const loadMessages = () => {
+  const query = firebase.firestore()
+    .collection('messages')
+    .orderBy('timestamp', 'desc')
+    .limit(12);
+
+  query.onSnapshot(snapshot => {
+    snapshot.docChanges().forEach(change => {
+      if (change.type === 'removed') {
+        deleteMessage(change.doc.id);
+      } else {
+        const message = change.doc.data();
+        displayMessage(change.doc.id, message.timestamp, 
+          message.name, message.text, message.picUrl, message.imageUrl);
+      }
+    })
+  })
 }
 
 // Saves a new message containing an image in Firebase.
 // This first saves the image in Firebase storage.
-function saveImageMessage(file) {
-  // TODO 9: Posts a new image as a message.
+const saveImageMessage = async file => {
+ try {
+    const loading_image = {
+      name: getUserName(),
+      imageUrl: LOADING_IMAGE_URL,
+      profilePicUrl: getProfilePicUrl(),
+      timestamp: firebase.firestore.FieldValue.serverTimestamp()
+    }
+  
+    const message = await firebase.firestore().collection('messages').add(loading_image);
+    const fileSnapshot = await firebase.storage().ref(`${firebase.auth().currentUser.uid}/${message.id}/${file.name}`).put(file);
+    const url = await fileSnapshot.ref.getDownloadURL();
+    
+    return message.update({
+      imageUrl: url, 
+      storageUri: fileSnapshot.metadata.fullPath
+    })
+ } catch (err) {
+    console.error('There was an error uploading a file to Cloud Storage:', error);
+ }
 }
 
 // Saves the messaging device token to the datastore.
-function saveMessagingDeviceToken() {
-  // TODO 10: Save the device token in the realtime datastore
+const saveMessagingDeviceToken = async () => {
+  try {
+    const currentToken = await firebase.messaging().getToken();
+    ///
+    console.log('Got FCM device token:', currentToken);
+    ///
+    if (currentToken) {
+      await firebase.firestore().collection('fcmTokens')
+        .doc(currentToken)
+        .set({ uid: firebase.auth().currentUser.uid })
+    } else {
+      requestNotificationsPermissions();
+    }
+
+  } catch (err) {
+    console.error('Unable to get messaging token.', err);
+  }
 }
 
 // Requests permissions to show notifications.
-function requestNotificationsPermissions() {
-  // TODO 11: Request permissions to send notifications.
+const requestNotificationsPermissions = async () => {
+  try {
+    await firebase.messaging().requestPermission();
+    await saveMessagingDeviceToken();
+  } catch(err) {
+    console.error('Unable to get permission to notify.', err);
+  }
 }
 
 // Triggered when a file is selected via the media picker.
@@ -316,7 +366,8 @@ mediaCaptureElement.addEventListener('change', onMediaFileSelected);
 // initialize Firebase
 initFirebaseAuth();
 
-// TODO: Enable Firebase Performance Monitoring.
+// Enable Firebase Performance Monitoring.
+firebase.performance();
 
 // We load currently existing chat messages and listen to new ones.
 loadMessages();
